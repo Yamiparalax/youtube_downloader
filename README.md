@@ -1,30 +1,27 @@
-### 📝 README melhorado (em português)
+# 🎬 YouTube Downloader com Interface Moderna
 
-# 🎬 Vaporwave YouTube Downloader
-
-> Baixe vídeos e áudios do YouTube com uma interface moderna, leve e automatizada — tudo em Python + Flet.  
-> Simples de usar, organizado e pronto para fluxos de automação 🛠️
+> Baixe vídeos e músicas do YouTube de forma rápida, prática e organizada — powered by Python + Flet  
+> Automatizado, estético e perfeito para quem curte eficiência ⚡
 
 ## ✨ Funcionalidades
 
-✅ Baixe **Vídeos** do YouTube (qualidade até 1440p)  
-✅ Baixe **Áudios** do YouTube (MP3 a 192kbps)  
-✅ **Fila de downloads** — adicione vários links e baixe em sequência  
-✅ **Barra de progresso**, status ao vivo e resumo de downloads  
-✅ Interface moderna e responsiva usando **Flet** (Material Design)
+✅ Baixe **Vídeos** (até 1440p)  
+✅ Baixe **Áudios** (MP3 192kbps)  
+✅ Adicione várias URLs na **fila de downloads**  
+✅ Acompanhe o **progresso**, **status** e **resumo** em tempo real  
+✅ Interface moderna com **Material Design (Flet)**  
+✅ Cria automaticamente as pastas **/Videos** e **/Audios** para organizar os arquivos  
+✅ Limpeza automática de arquivos temporários (caso o download falhe)
 
 ## ⚙️ Tecnologias
 
 - Python 3.11+
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp)
 - [Flet](https://flet.dev/)
-- Asyncio para downloads assíncronos e fluidos ⚡
+- Asyncio para downloads fluidos 🚀
 
-## 🚀 Como rodar
+## 🛠️ Como rodar
 
 ```bash
 pip install yt-dlp flet
 python download_videos.py
-```
-
-Os arquivos serão baixados automaticamente em subpastas `downloads/Videos` e `downloads/Audios` (criadas no mesmo diretório do script).
