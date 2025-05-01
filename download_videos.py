@@ -10,9 +10,8 @@ warnings.filterwarnings('ignore')
 
 # ===================== CONFIG =====================
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
-DOWNLOAD_DIR = os.path.join(ROOT_DIR, 'downloads')
-VIDEO_FOLDER = os.path.join(DOWNLOAD_DIR, 'Videos')
-AUDIO_FOLDER = os.path.join(DOWNLOAD_DIR, 'Audios')
+VIDEO_FOLDER = os.path.join(ROOT_DIR, 'Videos')
+AUDIO_FOLDER = os.path.join(ROOT_DIR, 'Audios')
 
 os.makedirs(VIDEO_FOLDER, exist_ok=True)
 os.makedirs(AUDIO_FOLDER, exist_ok=True)
@@ -47,8 +46,7 @@ def configurar_ytdlp_opções(formato, pasta_download):
     return ydl_opts
 
 # ===================== função baixar_midia =====================
-async def baixar_midia(url, formato, atualizar_progresso, atualizar_status):
-    pasta_download = VIDEO_FOLDER if formato == "Video" else AUDIO_FOLDER
+async def baixar_midia(url, formato, atualizar_progresso, atualizar_status, pasta_download):
     ydl_opts = configurar_ytdlp_opções(formato, pasta_download)
 
     def hook(d):
@@ -58,25 +56,34 @@ async def baixar_midia(url, formato, atualizar_progresso, atualizar_status):
             try:
                 progress_float = float(progress.replace('%', ''))
                 atualizar_progresso(progress_float)
-                atualizar_status(f"Downloading: {filename} - {progress}")
+                atualizar_status(f"Baixando: {filename} - {progress}")
             except:
                 pass
         elif d['status'] == 'finished':
             atualizar_progresso(100)
-            atualizar_status(f"Finished: {d.get('info_dict', {}).get('title', 'Unknown Title')}")
+            atualizar_status(f"Concluído: {d.get('info_dict', {}).get('title', 'Unknown Title')}")
 
     ydl_opts["progress_hooks"].append(hook)
 
     gc.disable()
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([url])
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+    except Exception as e:
+        # Remove arquivos temporários se falhar
+        for f in os.listdir(pasta_download):
+            if f.endswith(".part") or f.endswith(".tmp"):
+                try:
+                    os.remove(os.path.join(pasta_download, f))
+                except:
+                    pass
     gc.enable()
 
 # ===================== função atualizar_fila_interface =====================
-def atualizar_fila_interface(page, queue, downloads_concluidos, fila_texto, resumo_texto):
+def atualizar_fila_interface(page, queue, downloads_concluidos, downloads_em_andamento, fila_texto, resumo_texto):
     fila_texto.value = "\n".join([item['url'] for item in queue]) or "Nenhum download na fila"
-    resumo_texto.value = f"Concluídos: {downloads_concluidos} | Restantes: {len(queue)}"
-    if len(queue) == 0 and downloads_concluidos > 0:
+    resumo_texto.value = f"Concluídos: {downloads_concluidos} | Em andamento: {downloads_em_andamento} | Na fila: {len(queue)}"
+    if len(queue) == 0 and downloads_em_andamento == 0:
         resumo_texto.value = f"✅ Todos os downloads foram concluídos"
     page.update()
 
@@ -91,35 +98,42 @@ def atualizar_status(msg, status_texto, page):
     page.update()
 
 # ===================== função iniciar_download =====================
-async def iniciar_download(queue, atualizar_progresso_cb, atualizar_status_cb, page, downloads_concluidos, fila_texto, resumo_texto, progresso_bar, status_texto):
+async def iniciar_download(queue, atualizar_progresso_cb, atualizar_status_cb, page, downloads_concluidos_ref, fila_texto, resumo_texto, progresso_bar, status_texto):
+    downloads_em_andamento = 0
     while queue:
         item = queue.pop(0)
-        atualizar_fila_interface(page, queue, downloads_concluidos, fila_texto, resumo_texto)
+        downloads_em_andamento += 1
+        atualizar_fila_interface(page, queue, downloads_concluidos_ref[0], downloads_em_andamento, fila_texto, resumo_texto)
+
+        pasta_download = VIDEO_FOLDER if item['formato'] == "Video" else AUDIO_FOLDER
         await baixar_midia(item['url'], item['formato'],
                            lambda p: atualizar_progresso_cb(p, progresso_bar, page),
-                           lambda m: atualizar_status_cb(m, status_texto, page))
-        downloads_concluidos += 1
-        atualizar_fila_interface(page, queue, downloads_concluidos, fila_texto, resumo_texto)
+                           lambda m: atualizar_status_cb(m, status_texto, page),
+                           pasta_download)
+
+        downloads_concluidos_ref[0] += 1
+        downloads_em_andamento -= 1
+        atualizar_fila_interface(page, queue, downloads_concluidos_ref[0], downloads_em_andamento, fila_texto, resumo_texto)
 
     progresso_bar.value = 0
-    atualizar_status_cb("Idle", status_texto, page)
+    atualizar_status_cb("Aguardando...", status_texto, page)
 
 # ===================== função main =====================
 def main(page: ft.Page):
     page.title = "YouTube Downloader"
     page.vertical_alignment = ft.MainAxisAlignment.START
     page.window_width = 500
-    page.window_height = 550
+    page.window_height = 580
     page.theme = ft.Theme(color_scheme_seed="purple", font_family="monospace")
     page.bgcolor = ft.colors.PINK_50
 
     queue = []
-    downloads_concluidos = 0
+    downloads_concluidos_ref = [0]  # Usar lista para mutabilidade no escopo da coroutine
 
     progresso_bar = ft.ProgressBar(width=400, height=10)
     fila_texto = ft.Text("Nenhum download na fila", width=400)
-    status_texto = ft.Text("Status: Idle", width=400, color=ft.colors.PINK_900, weight=ft.FontWeight.BOLD)
-    resumo_texto = ft.Text("Concluídos: 0 | Restantes: 0", width=400, color=ft.colors.PURPLE_900, weight=ft.FontWeight.BOLD)
+    status_texto = ft.Text("Status: Aguardando...", width=400, color=ft.colors.PINK_900, weight=ft.FontWeight.BOLD)
+    resumo_texto = ft.Text("Concluídos: 0 | Em andamento: 0 | Na fila: 0", width=400, color=ft.colors.PURPLE_900, weight=ft.FontWeight.BOLD)
 
     # ===================== função adicionar_na_fila =====================
     def adicionar_na_fila(e):
@@ -129,10 +143,10 @@ def main(page: ft.Page):
                 "url": url,
                 "formato": dropdown_formato.value,
             })
-            atualizar_fila_interface(page, queue, downloads_concluidos, fila_texto, resumo_texto)
+            atualizar_fila_interface(page, queue, downloads_concluidos_ref[0], 0, fila_texto, resumo_texto)
             input_url.value = ""
             page.update()
-            asyncio.run(iniciar_download(queue, atualizar_progresso, atualizar_status, page, downloads_concluidos, fila_texto, resumo_texto, progresso_bar, status_texto))
+            asyncio.run(iniciar_download(queue, atualizar_progresso, atualizar_status, page, downloads_concluidos_ref, fila_texto, resumo_texto, progresso_bar, status_texto))
 
     input_url = ft.TextField(label="Cole a URL do YouTube", width=400)
     dropdown_formato = ft.Dropdown(
