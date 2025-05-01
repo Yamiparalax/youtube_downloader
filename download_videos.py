@@ -70,9 +70,7 @@ async def baixar_midia(url, formato, atualizar_progresso, atualizar_status):
 # ===================== função atualizar_fila_interface =====================
 def atualizar_fila_interface(page, queue, downloads_concluidos, fila_texto, resumo_texto):
     fila_texto.value = "\n".join([item['url'] for item in queue]) or "No downloads in queue"
-    resumo_texto.value = f"Completed: {downloads_concluidos} | Remaining: {len(queue)}"
-    if len(queue) == 0 and downloads_concluidos > 0:
-        resumo_texto.value = f"✅ All downloads completed"
+    resumo_texto.value = f"✅ Completed: {downloads_concluidos} | ⏳ Remaining: {len(queue)}"
     page.update()
 
 # ===================== função atualizar_progresso =====================
@@ -82,7 +80,7 @@ def atualizar_progresso(percentual, progresso_bar, page):
 
 # ===================== função atualizar_status =====================
 def atualizar_status(msg, status_texto, page):
-    status_texto.value = f"Status: {msg}"
+    status_texto.value = f"📥 Status: {msg}"
     page.update()
 
 # ===================== função iniciar_download =====================
@@ -104,7 +102,7 @@ def main(page: ft.Page):
     page.title = "YouTube Downloader"
     page.vertical_alignment = ft.MainAxisAlignment.START
     page.window_width = 500
-    page.window_height = 550
+    page.window_height = 600
     page.theme = ft.Theme(color_scheme_seed="purple", font_family="monospace")
     page.bgcolor = ft.colors.PINK_50
 
@@ -112,9 +110,9 @@ def main(page: ft.Page):
     downloads_concluidos = 0
 
     progresso_bar = ft.ProgressBar(width=400, height=10)
-    fila_texto = ft.Text("No downloads in queue", width=400)
-    status_texto = ft.Text("Status: Idle", width=400, color=ft.colors.PINK_900, weight=ft.FontWeight.BOLD)
-    resumo_texto = ft.Text("Completed: 0 | Remaining: 0", width=400, color=ft.colors.PURPLE_900, weight=ft.FontWeight.BOLD)
+    fila_texto = ft.Text("No downloads in queue", width=400, color=ft.colors.BLACK87)
+    status_texto = ft.Text("📥 Status: Idle", width=400, color=ft.colors.BLACK, weight=ft.FontWeight.BOLD, size=13)
+    resumo_texto = ft.Text("✅ Completed: 0 | ⏳ Remaining: 0", width=400, color=ft.colors.BLACK, weight=ft.FontWeight.BOLD, size=13)
 
     # ===================== função adicionar_na_fila =====================
     def adicionar_na_fila(e):
@@ -136,18 +134,25 @@ def main(page: ft.Page):
         value="Video",
         width=200
     )
-    btn_add_queue = ft.ElevatedButton("Add to Queue + Download", on_click=adicionar_na_fila, bgcolor=ft.colors.PURPLE)
+    btn_add_queue = ft.ElevatedButton(
+        "Add to Queue + Download",
+        on_click=adicionar_na_fila,
+        bgcolor=ft.colors.PURPLE,
+        color=ft.colors.WHITE,
+        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), padding=15),
+        height=45
+    )
 
     page.add(
-        ft.Text("🎬 YouTube Downloader", size=24, weight=ft.FontWeight.BOLD, color=ft.colors.PINK_900),
+        ft.Text("🎬 YouTube Downloader", size=24, weight=ft.FontWeight.BOLD, color=ft.colors.PURPLE_900),
         input_url,
         dropdown_formato,
         btn_add_queue,
-        ft.Text("Download Progress:", weight=ft.FontWeight.BOLD),
+        ft.Text("⬇️ Download Progress:", weight=ft.FontWeight.BOLD, color=ft.colors.BLACK),
         progresso_bar,
         status_texto,
         resumo_texto,
-        ft.Text("Queue:", weight=ft.FontWeight.BOLD),
+        ft.Text("📋 Queue:", weight=ft.FontWeight.BOLD, color=ft.colors.BLACK),
         fila_texto
     )
 
