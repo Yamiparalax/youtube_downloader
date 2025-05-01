@@ -9,8 +9,13 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # ===================== CONFIG =====================
-VIDEO_FOLDER = r"C:\Users\carlo\Videos"
-AUDIO_FOLDER = r"C:\Users\carlo\Music"
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+DOWNLOAD_DIR = os.path.join(ROOT_DIR, 'downloads')
+VIDEO_FOLDER = os.path.join(DOWNLOAD_DIR, 'Videos')
+AUDIO_FOLDER = os.path.join(DOWNLOAD_DIR, 'Audios')
+
+os.makedirs(VIDEO_FOLDER, exist_ok=True)
+os.makedirs(AUDIO_FOLDER, exist_ok=True)
 
 # ===================== função configurar_ytdlp_opções =====================
 def configurar_ytdlp_opções(formato, pasta_download):
@@ -69,8 +74,10 @@ async def baixar_midia(url, formato, atualizar_progresso, atualizar_status):
 
 # ===================== função atualizar_fila_interface =====================
 def atualizar_fila_interface(page, queue, downloads_concluidos, fila_texto, resumo_texto):
-    fila_texto.value = "\n".join([item['url'] for item in queue]) or "No downloads in queue"
-    resumo_texto.value = f"✅ Completed: {downloads_concluidos} | ⏳ Remaining: {len(queue)}"
+    fila_texto.value = "\n".join([item['url'] for item in queue]) or "Nenhum download na fila"
+    resumo_texto.value = f"Concluídos: {downloads_concluidos} | Restantes: {len(queue)}"
+    if len(queue) == 0 and downloads_concluidos > 0:
+        resumo_texto.value = f"✅ Todos os downloads foram concluídos"
     page.update()
 
 # ===================== função atualizar_progresso =====================
@@ -80,7 +87,7 @@ def atualizar_progresso(percentual, progresso_bar, page):
 
 # ===================== função atualizar_status =====================
 def atualizar_status(msg, status_texto, page):
-    status_texto.value = f"📥 Status: {msg}"
+    status_texto.value = f"Status: {msg}"
     page.update()
 
 # ===================== função iniciar_download =====================
@@ -102,7 +109,7 @@ def main(page: ft.Page):
     page.title = "YouTube Downloader"
     page.vertical_alignment = ft.MainAxisAlignment.START
     page.window_width = 500
-    page.window_height = 600
+    page.window_height = 550
     page.theme = ft.Theme(color_scheme_seed="purple", font_family="monospace")
     page.bgcolor = ft.colors.PINK_50
 
@@ -110,9 +117,9 @@ def main(page: ft.Page):
     downloads_concluidos = 0
 
     progresso_bar = ft.ProgressBar(width=400, height=10)
-    fila_texto = ft.Text("No downloads in queue", width=400, color=ft.colors.BLACK87)
-    status_texto = ft.Text("📥 Status: Idle", width=400, color=ft.colors.BLACK, weight=ft.FontWeight.BOLD, size=13)
-    resumo_texto = ft.Text("✅ Completed: 0 | ⏳ Remaining: 0", width=400, color=ft.colors.BLACK, weight=ft.FontWeight.BOLD, size=13)
+    fila_texto = ft.Text("Nenhum download na fila", width=400)
+    status_texto = ft.Text("Status: Idle", width=400, color=ft.colors.PINK_900, weight=ft.FontWeight.BOLD)
+    resumo_texto = ft.Text("Concluídos: 0 | Restantes: 0", width=400, color=ft.colors.PURPLE_900, weight=ft.FontWeight.BOLD)
 
     # ===================== função adicionar_na_fila =====================
     def adicionar_na_fila(e):
@@ -127,32 +134,25 @@ def main(page: ft.Page):
             page.update()
             asyncio.run(iniciar_download(queue, atualizar_progresso, atualizar_status, page, downloads_concluidos, fila_texto, resumo_texto, progresso_bar, status_texto))
 
-    input_url = ft.TextField(label="Paste YouTube URL", width=400)
+    input_url = ft.TextField(label="Cole a URL do YouTube", width=400)
     dropdown_formato = ft.Dropdown(
-        label="Choose format",
+        label="Escolha o formato",
         options=[ft.dropdown.Option("Video"), ft.dropdown.Option("Audio")],
         value="Video",
         width=200
     )
-    btn_add_queue = ft.ElevatedButton(
-        "Add to Queue + Download",
-        on_click=adicionar_na_fila,
-        bgcolor=ft.colors.PURPLE,
-        color=ft.colors.WHITE,
-        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), padding=15),
-        height=45
-    )
+    btn_add_queue = ft.ElevatedButton("Adicionar à Fila + Baixar", on_click=adicionar_na_fila, bgcolor=ft.colors.PURPLE, color=ft.colors.WHITE, style=ft.ButtonStyle(shadow_color=ft.colors.BLACK))
 
     page.add(
-        ft.Text("🎬 YouTube Downloader", size=24, weight=ft.FontWeight.BOLD, color=ft.colors.PURPLE_900),
+        ft.Text("🎬 YouTube Downloader", size=24, weight=ft.FontWeight.BOLD, color=ft.colors.PINK_900, italic=True, text_align=ft.TextAlign.CENTER),
         input_url,
         dropdown_formato,
         btn_add_queue,
-        ft.Text("⬇️ Download Progress:", weight=ft.FontWeight.BOLD, color=ft.colors.BLACK),
+        ft.Text("Progresso do download:", weight=ft.FontWeight.BOLD),
         progresso_bar,
         status_texto,
         resumo_texto,
-        ft.Text("📋 Queue:", weight=ft.FontWeight.BOLD, color=ft.colors.BLACK),
+        ft.Text("Fila:", weight=ft.FontWeight.BOLD),
         fila_texto
     )
 
