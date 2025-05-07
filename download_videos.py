@@ -1,10 +1,16 @@
 # ===================== IMPORTS =====================
-import asyncio
-import yt_dlp
-import flet as ft
 import os
 import gc
 import warnings
+import asyncio
+import yt_dlp
+from concurrent.futures import ThreadPoolExecutor
+
+from PySide6.QtWidgets import (
+    QApplication, QWidget, QLabel, QLineEdit, QPushButton,
+    QVBoxLayout, QHBoxLayout, QComboBox, QListWidget, QProgressBar
+)
+from PySide6.QtCore import Qt, QThreadPool, QRunnable, Slot, Signal, QObject
 
 warnings.filterwarnings('ignore')
 
@@ -17,11 +23,11 @@ os.makedirs(VIDEO_FOLDER, exist_ok=True)
 os.makedirs(AUDIO_FOLDER, exist_ok=True)
 
 # ===================== função configurar_ytdlp_opções =====================
-def configurar_ytdlp_opções(formato, pasta_download):
+def configurar_ytdlp_opções(formato, pasta_download, hook):
     ydl_opts = {
         "outtmpl": os.path.join(pasta_download, "%(title)s.%(ext)s"),
         "noplaylist": True,
-        "progress_hooks": [],
+        "progress_hooks": [hook],
         "overwrites": True,
         "concurrent_fragment_downloads": 4,
         "merge_output_format": "mp4",
@@ -45,131 +51,182 @@ def configurar_ytdlp_opções(formato, pasta_download):
 
     return ydl_opts
 
-# ===================== função baixar_midia =====================
-async def baixar_midia(url, formato, atualizar_progresso, atualizar_status, pasta_download):
-    ydl_opts = configurar_ytdlp_opções(formato, pasta_download)
+# ===================== classe WorkerSignals =====================
+class WorkerSignals(QObject):
+    progresso = Signal(float, str)
+    concluido = Signal(str)
+    erro = Signal(str)
 
-    def hook(d):
-        if d['status'] == 'downloading':
-            filename = d.get('info_dict', {}).get('title', 'Unknown Title')
-            progress = d.get('_percent_str', '0.0%').strip()
-            try:
-                progress_float = float(progress.replace('%', ''))
-                atualizar_progresso(progress_float)
-                atualizar_status(f"Baixando: {filename} - {progress}")
-            except:
-                pass
-        elif d['status'] == 'finished':
-            atualizar_progresso(100)
-            atualizar_status(f"Concluído: {d.get('info_dict', {}).get('title', 'Unknown Title')}")
+# ===================== classe DownloadWorker =====================
+class DownloadWorker(QRunnable):
+    def __init__(self, url, formato, pasta_download):
+        super().__init__()
+        self.url = url
+        self.formato = formato
+        self.pasta_download = pasta_download
+        self.signals = WorkerSignals()
 
-    ydl_opts["progress_hooks"].append(hook)
-
-    gc.disable()
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-    except Exception as e:
-        # Remove arquivos temporários se falhar
-        for f in os.listdir(pasta_download):
-            if f.endswith(".part") or f.endswith(".tmp"):
+    @Slot()
+    def run(self):
+        def hook(d):
+            if d['status'] == 'downloading':
+                filename = d.get('info_dict', {}).get('title', 'Unknown Title')
+                progress = d.get('_percent_str', '0.0%').strip()
                 try:
-                    os.remove(os.path.join(pasta_download, f))
+                    progress_float = float(progress.replace('%', ''))
+                    self.signals.progresso.emit(progress_float, filename)
                 except:
                     pass
-    gc.enable()
+            elif d['status'] == 'finished':
+                filename = d.get('info_dict', {}).get('title', 'Unknown Title')
+                self.signals.concluido.emit(filename)
 
-# ===================== função atualizar_fila_interface =====================
-def atualizar_fila_interface(page, queue, downloads_concluidos, downloads_em_andamento, fila_texto, resumo_texto):
-    fila_texto.value = "\n".join([item['url'] for item in queue]) or "Nenhum download na fila"
-    resumo_texto.value = f"Concluídos: {downloads_concluidos} | Em andamento: {downloads_em_andamento} | Na fila: {len(queue)}"
-    if len(queue) == 0 and downloads_em_andamento == 0:
-        resumo_texto.value = f"✅ Todos os downloads foram concluídos"
-    page.update()
+        ydl_opts = configurar_ytdlp_opções(self.formato, self.pasta_download, hook)
 
-# ===================== função atualizar_progresso =====================
-def atualizar_progresso(percentual, progresso_bar, page):
-    progresso_bar.value = percentual / 100
-    page.update()
-
-# ===================== função atualizar_status =====================
-def atualizar_status(msg, status_texto, page):
-    status_texto.value = f"Status: {msg}"
-    page.update()
-
-# ===================== função iniciar_download =====================
-async def iniciar_download(queue, atualizar_progresso_cb, atualizar_status_cb, page, downloads_concluidos_ref, fila_texto, resumo_texto, progresso_bar, status_texto):
-    downloads_em_andamento = 0
-    while queue:
-        item = queue.pop(0)
-        downloads_em_andamento += 1
-        atualizar_fila_interface(page, queue, downloads_concluidos_ref[0], downloads_em_andamento, fila_texto, resumo_texto)
-
-        pasta_download = VIDEO_FOLDER if item['formato'] == "Video" else AUDIO_FOLDER
-        await baixar_midia(item['url'], item['formato'],
-                           lambda p: atualizar_progresso_cb(p, progresso_bar, page),
-                           lambda m: atualizar_status_cb(m, status_texto, page),
-                           pasta_download)
-
-        downloads_concluidos_ref[0] += 1
-        downloads_em_andamento -= 1
-        atualizar_fila_interface(page, queue, downloads_concluidos_ref[0], downloads_em_andamento, fila_texto, resumo_texto)
-
-    progresso_bar.value = 0
-    atualizar_status_cb("Aguardando...", status_texto, page)
+        gc.disable()
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([self.url])
+        except Exception as e:
+            self.signals.erro.emit(str(e))
+            for f in os.listdir(self.pasta_download):
+                if f.endswith(".part") or f.endswith(".tmp"):
+                    try:
+                        os.remove(os.path.join(self.pasta_download, f))
+                    except:
+                        pass
+        gc.enable()
 
 # ===================== função main =====================
-def main(page: ft.Page):
-    page.title = "YouTube Downloader"
-    page.vertical_alignment = ft.MainAxisAlignment.START
-    page.window_width = 500
-    page.window_height = 580
-    page.theme = ft.Theme(color_scheme_seed="purple", font_family="monospace")
-    page.bgcolor = ft.colors.PINK_50
+class YouTubeDownloader(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("YouTube Downloader — C6 Version")
+        self.setGeometry(300, 200, 600, 500)
+        self.threadpool = QThreadPool()
 
-    queue = []
-    downloads_concluidos_ref = [0]  # Usar lista para mutabilidade no escopo da coroutine
+        # Estado
+        self.queue = []
+        self.downloads_em_andamento = {}
+        self.downloads_concluidos = []
 
-    progresso_bar = ft.ProgressBar(width=400, height=10)
-    fila_texto = ft.Text("Nenhum download na fila", width=400)
-    status_texto = ft.Text("Status: Aguardando...", width=400, color=ft.colors.PINK_900, weight=ft.FontWeight.BOLD)
-    resumo_texto = ft.Text("Concluídos: 0 | Em andamento: 0 | Na fila: 0", width=400, color=ft.colors.PURPLE_900, weight=ft.FontWeight.BOLD)
+        # Layout principal
+        layout = QVBoxLayout()
 
-    # ===================== função adicionar_na_fila =====================
-    def adicionar_na_fila(e):
-        url = input_url.value.strip()
+        titulo = QLabel("🎬 YouTube Downloader")
+        titulo.setAlignment(Qt.AlignCenter)
+        titulo.setStyleSheet("font-size: 22px; font-weight: bold; color: purple;")
+
+        self.input_url = QLineEdit()
+        self.input_url.setPlaceholderText("Cole a URL do YouTube")
+
+        self.dropdown_formato = QComboBox()
+        self.dropdown_formato.addItems(["Video", "Audio"])
+
+        self.btn_add_queue = QPushButton("Adicionar à Fila + Baixar")
+        self.btn_add_queue.clicked.connect(self.adicionar_na_fila)
+
+        hbox = QHBoxLayout()
+        hbox.addWidget(self.input_url)
+        hbox.addWidget(self.dropdown_formato)
+        hbox.addWidget(self.btn_add_queue)
+
+        # Labels
+        self.label_status = QLabel("Status: Aguardando...")
+        self.label_resumo = QLabel("Concluídos: 0 | Em andamento: 0 | Na fila: 0")
+
+        # Barras e listas
+        self.progresso_bar = QProgressBar()
+        self.progresso_bar.setValue(0)
+
+        self.lista_fila = QListWidget()
+        self.lista_andamento = QListWidget()
+        self.lista_concluidos = QListWidget()
+
+        # Layout final
+        layout.addWidget(titulo)
+        layout.addLayout(hbox)
+        layout.addWidget(QLabel("Progresso atual:"))
+        layout.addWidget(self.progresso_bar)
+        layout.addWidget(self.label_status)
+        layout.addWidget(self.label_resumo)
+
+        layout.addWidget(QLabel("📋 Fila de downloads:"))
+        layout.addWidget(self.lista_fila)
+        layout.addWidget(QLabel("⏳ Em andamento:"))
+        layout.addWidget(self.lista_andamento)
+        layout.addWidget(QLabel("✅ Concluídos:"))
+        layout.addWidget(self.lista_concluidos)
+
+        self.setLayout(layout)
+
+# ===================== função atualizar_interface =====================
+    def atualizar_interface(self):
+        self.lista_fila.clear()
+        for item in self.queue:
+            self.lista_fila.addItem(f"{item['url']} [{item['formato']}]")
+
+        self.lista_andamento.clear()
+        for titulo in self.downloads_em_andamento.values():
+            self.lista_andamento.addItem(titulo)
+
+        self.lista_concluidos.clear()
+        for titulo in self.downloads_concluidos:
+            self.lista_concluidos.addItem(titulo)
+
+        self.label_resumo.setText(f"Concluídos: {len(self.downloads_concluidos)} | Em andamento: {len(self.downloads_em_andamento)} | Na fila: {len(self.queue)}")
+
+# ===================== função adicionar_na_fila =====================
+    def adicionar_na_fila(self):
+        url = self.input_url.text().strip()
+        formato = self.dropdown_formato.currentText()
         if url:
-            queue.append({
-                "url": url,
-                "formato": dropdown_formato.value,
-            })
-            atualizar_fila_interface(page, queue, downloads_concluidos_ref[0], 0, fila_texto, resumo_texto)
-            input_url.value = ""
-            page.update()
-            asyncio.run(iniciar_download(queue, atualizar_progresso, atualizar_status, page, downloads_concluidos_ref, fila_texto, resumo_texto, progresso_bar, status_texto))
+            self.queue.append({"url": url, "formato": formato})
+            self.input_url.clear()
+            self.iniciar_proximo_download()
 
-    input_url = ft.TextField(label="Cole a URL do YouTube", width=400)
-    dropdown_formato = ft.Dropdown(
-        label="Escolha o formato",
-        options=[ft.dropdown.Option("Video"), ft.dropdown.Option("Audio")],
-        value="Video",
-        width=200
-    )
-    btn_add_queue = ft.ElevatedButton("Adicionar à Fila + Baixar", on_click=adicionar_na_fila, bgcolor=ft.colors.PURPLE, color=ft.colors.WHITE, style=ft.ButtonStyle(shadow_color=ft.colors.BLACK))
+# ===================== função iniciar_proximo_download =====================
+    def iniciar_proximo_download(self):
+        if not self.queue or len(self.downloads_em_andamento) > 0:
+            self.atualizar_interface()
+            return
 
-    page.add(
-        ft.Text("🎬 YouTube Downloader", size=24, weight=ft.FontWeight.BOLD, color=ft.colors.PINK_900, italic=True, text_align=ft.TextAlign.CENTER),
-        input_url,
-        dropdown_formato,
-        btn_add_queue,
-        ft.Text("Progresso do download:", weight=ft.FontWeight.BOLD),
-        progresso_bar,
-        status_texto,
-        resumo_texto,
-        ft.Text("Fila:", weight=ft.FontWeight.BOLD),
-        fila_texto
-    )
+        item = self.queue.pop(0)
+        pasta_download = VIDEO_FOLDER if item['formato'] == "Video" else AUDIO_FOLDER
+
+        worker = DownloadWorker(item['url'], item['formato'], pasta_download)
+        worker.signals.progresso.connect(self.atualizar_progresso)
+        worker.signals.concluido.connect(self.finalizar_download)
+        worker.signals.erro.connect(self.tratar_erro)
+
+        self.downloads_em_andamento[item['url']] = "Iniciando..."
+        self.threadpool.start(worker)
+        self.atualizar_interface()
+
+# ===================== função atualizar_progresso =====================
+    def atualizar_progresso(self, percentual, titulo):
+        self.progresso_bar.setValue(int(percentual))
+        self.label_status.setText(f"Baixando: {titulo} - {percentual:.1f}%")
+        self.downloads_em_andamento = {k: titulo for k in self.downloads_em_andamento.keys()}
+        self.atualizar_interface()
+
+# ===================== função finalizar_download =====================
+    def finalizar_download(self, titulo):
+        self.progresso_bar.setValue(0)
+        self.label_status.setText(f"Concluído: {titulo}")
+        self.downloads_concluidos.append(titulo)
+        self.downloads_em_andamento.clear()
+        self.iniciar_proximo_download()
+
+# ===================== função tratar_erro =====================
+    def tratar_erro(self, erro_msg):
+        self.label_status.setText(f"[❌ ERRO] {erro_msg}")
+        self.downloads_em_andamento.clear()
+        self.iniciar_proximo_download()
 
 # ===================== função executar_app =====================
 if __name__ == "__main__":
-    ft.app(target=main)
+    app = QApplication([])
+    janela = YouTubeDownloader()
+    janela.show()
+    app.exec()
